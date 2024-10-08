@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>模擬患者AI</title>
+    <style>
+    /* モーダル */
+    .modal {
+        display: none; /* デフォルトで非表示 */
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: black;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    </style>
+</head>
+
+<body>
+    <p>開始ボタンを押して問診を始めてください。会話を終了するときは終了ボタンを押してください。</p>
+    <button type="button" class="voice_start_class" onclick="startRecognition()">開始</button>
+    <button type="button" class="voice_stop_class" onclick="endConversation()">終了</button>
+    <video id="video_listening_id" src="listening.mp4" width="640" height="480" loop autoplay playsinline>
+        Your browser does not support the video tag.
+    </video>
+    <video id="video_speaking_id" src="speaking.mp4" width="640" height="480" style="display:none;" loop autoplay playsinline>
+         Your browser does not support the video tag.
+    </video>
+    <div id="chat_container_id">会話履歴</div>
+    
+    <!-- モーダル -->
+    <div id="evaluationModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>フィードバック</h2>
+            <div id="evaluationResult" style="white-space: pre-wrap;"></div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = "sk-proj-Fwymh6DCEThw7RBNsPdzT3BlbkFJ4gqSx4kLuCyPLmkRAYTe";
+        const chatContainer_element = document.querySelector("#chat_container_id");
+        const startButton_element = document.querySelector(".voice_start_class");
+        const stopButton_element = document.querySelector(".voice_stop_class");
+        const video_listening_element = document.getElementById("video_listening_id");
+        const video_speaking_element = document.getElementById("video_speaking_id");
+
+        let conversationHistory = [{ role: "system", content: "あなたは患者です。\
+            名前は垂井 姫依（たるい ひより）です。年齢は23歳です。職業は学生です。2001年4月2日生まれです。\
+            今朝から熱が38.5度あります。発熱は続いています。頭痛も同時に出てきました。\
+            頭全体が割れるように痛いです。手足の関節と筋肉が痛みます。食欲は無いです。\
+            咳、痰、喉の痛みは無いです。吐き気はあります。嘔吐は無いです。腹痛や下痢は無いです。\
+            皮膚に発疹はないです。最近、遠出はしていないです。海外にはいっていないです。\
+            父が肝臓がんで死んでいます。既往歴はないです。ピリン系にアレルギーがあります。\
+            風邪薬を服用後、発疹がでたことがあります。\
+            条件1:答えるときはすごく簡単に回答してください。\
+            条件2:症状は全てを一度に答えず、小分けにして答えてください。\
+            条件3:聞かれていないことは答えないでください。\
+            条件4:与えられていない患者情報は適当な返事を考えて、答えてください。" }
+        ];
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = "ja";
+        recognition.continuous = true;
+        let speaking_number = 0;
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[speaking_number][0].transcript;
+            const confidence = event.results[speaking_number][0].confidence;
+            speaking_number += 1;
+            if (!transcript || confidence < 0.5) return;
+            addChatMessage("user", transcript);
+            conversationHistory.push({ role: "user", content: transcript });
+            requestChatAPI(transcript);
+        };
+
+        function start_speaking_video() {
+            video_listening_element.pause();
+            video_listening_element.style.display = "none";
+            video_speaking_element.style.display = "block";
+            video_speaking_element.play();
+        }
+
+        function start_listening_video() {
+            video_speaking_element.pause();
+            video_speaking_element.style.display = "none";
+            video_listening_element.style.display = "block";
+            video_listening_element.play();
+        }
+
+        function startRecognition() {
+            speaking_number = 0;
+            recognition.start();
+        }
+
+        function addChatMessage(role, text) {
+            const messageDiv_element = document.createElement("div");
+            messageDiv_element.textContent = text;
+            chatContainer_element.appendChild(messageDiv_element);
+            chatContainer_element.scrollTop = chatContainer_element.scrollHeight;
+        }
+
+        function speakText(text) {
+            const voices = window.speechSynthesis.getVoices();
+            const uttr = new SpeechSynthesisUtterance(text);
+            uttr.voice = voices[6];
+            uttr.volume = 1.0;
+            uttr.rate = 1.0;
+            uttr.pitch = 1.0;
+            uttr.lang = "jp";
+            start_speaking_video();
+            window.speechSynthesis.speak(uttr);
+            uttr.onend = () => {
+                start_listening_video();
+            };
+        }
+
+        function requestChatAPI(text = "") {
+            if (!text) return;
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        const response = JSON.parse(xhr.responseText);
+                        const aiResponse = response.choices[0].message.content.trim();
+                        addChatMessage("assistant", aiResponse);
+                        conversationHistory.push({ role: "assistant", content: aiResponse });
+                        speakText(aiResponse);
+                    } 
+                    else {
+                        addChatMessage("assistant", "エラーが発生しました。");
+                    }
+                }
+            };
+            xhr.send(JSON.stringify({
+                model: 'gpt-4o',
+                max_tokens: 126,
+                temperature: 0.5,
+                top_p: 1,
+                messages: conversationHistory
+            }));
+        }
+
+        function evaluateConversation() {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', 'https://api.openai.com/v1/chat/completions');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        const response = JSON.parse(xhr.responseText);
+                        const evaluationResult = response.choices[0].message.content.trim();
+                        // フォーマットを適用する
+                        const formattedResult = formatEvaluationResult(evaluationResult);
+                        // モーダルの表示と内容設定
+                        const modal = document.getElementById("evaluationModal");
+                        const resultText = document.getElementById("evaluationResult");
+                        resultText.innerHTML = formattedResult; // 評価結果を表示
+                        modal.style.display = "block";
+                    }
+                    else {
+                        alert("評価中にエラーが発生しました。");
+                    }
+                }
+            };
+
+            xhr.send(JSON.stringify({
+                model: 'gpt-4o',
+                messages: [
+                    { role: "system", content: "あなたは医師と患者の問診を評価するAIです。\
+                    会話履歴をもとに、医師として正しい問診を行ったかどうか評価してください。評価項目は以下の通りです。\
+                    項目1:患者に対して自己紹介をしている。\
+                    項目2:本人確認のためという目的を告げ、患者に名乗ってもらう。\
+                    項目3:患者に対してわかりやすい言葉を使う。\
+                    項目4:言葉がけ、相槌を適切に使う。\
+                    項目5:患者の言葉を繰り返したり、適切に言い換えたりする。\
+                    項目6:患者の訴えや経過を患者の言葉を使って適切に要約し、要約が間違えていないか確認する。\
+                    項目7:症状のある部位を聞く。\
+                    項目8:症状の性状（性質、頻度、持続時間など）を聞く。\
+                    項目9:症状の程度（強度、頻度、持続時間など）を聞く。\
+                    項目10:症状の経過（発症時期、持続時間、頻度や程度の変化など）を聞く。\
+                    項目11:症状の起きる状況を聞く。\
+                    項目12:症状を憎悪・寛解させる因子を聞く。\
+                    項目13:症状に随伴する症状を聞く。\
+                    項目14:症状が患者の日常生活に及ぼす程度を聞く。\
+                    項目15:症状に対する患者の受療行動（安静にする、病院に行くなど）を聞く。\
+                    項目16:睡眠の状況を聞く。\
+                    項目17:排便の状況を聞く。必要に応じて、排尿の頻度も聞く。\
+                    項目18:食欲を聞く。\
+                    項目19:体重の変化を聞く。\
+                    項目20:女性の場合、月経歴を聞く。\
+                    項目21:既往歴を聞く。\
+                    項目22:常用薬を聞く。\
+                    項目23:家族歴を聞く。血縁家族と同居家族の違いを意識して聞く。\
+                    項目24:アレルギー歴を聞く。\
+                    項目25:飲酒、喫煙がどれくらいかを聞く。\
+                    項目26:生活習慣（一日の過ごし方など）を聞く。\
+                    項目27:生活環境および家庭環境について（衛生環境やペットの有無など）聞く。\
+                    項目28:社会歴（職歴、職場環境など）を聞く。\
+                    項目29:海外渡航歴を聞く。\
+                    項目30:患者の解釈モデルを聞く。\
+                    項目31:患者の生活や仕事などの社会的状況（家族、仕事の状況、人間関係など）を聞く。\
+                    項目32:患者が特に気になっていることや心配していることなどの心理的状況を詳しく聞く。\
+                    項目33:患者の検査に対する希望や期待、好みを聞く。\
+                    項目34:患者のこれまでの病気に対する対処行動・受療行動を聞く。\
+                    項目35:聞き洩らしや質問がないか確認する。\
+                    項目36:医療面接終了後、患者が次にどうしたら良いか適切に伝える。" },
+                    ...conversationHistory
+                ]
+            }));
+        }
+        
+        // モーダルを閉じるイベントリスナー
+        const modal = document.getElementById("evaluationModal");
+        const closeBtn = document.querySelector(".close");
+        closeBtn.onclick = function() {
+            modal.style.display = "none";
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        // 評価結果の表示
+        function formatEvaluationResult(result) {
+            const items = result.split("\n"); // 改行で分割
+            let formattedText = "<ul>";
+            items.forEach((item, index) => {
+                if (item.trim()) {
+                    formattedText += `<li><strong>${index + 1}. ${item.trim()}</strong></li>`;
+                }
+            });
+            formattedText += "</ul>";
+            return formattedText;
+        }
+
+        function endConversation() {
+            recognition.stop(); // 音声認識停止
+            start_listening_video();
+            evaluateConversation();
+        }
+    </script>
+</body>
+</html>
